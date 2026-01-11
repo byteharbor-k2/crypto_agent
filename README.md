@@ -16,9 +16,11 @@ https://cloud.google.com/blog/products/ai-machine-learning/announcing-agents-to-
 
 
 # x402 relate link
-https://blog.cloudflare.com/x402/
-
 https://www.coinbase.com/developer-platform/products/x402
+
+https://docs.cdp.coinbase.com/x402/welcome
+
+https://blog.cloudflare.com/x402/
 
 https://web3.okx.com/learn/wallet-x402-how-to-trade-it
 
