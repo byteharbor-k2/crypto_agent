@@ -1,6 +1,6 @@
-# CLAUDE.md
+# AGENT.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+This file provides guidance to coding agents when working with code in this repository.
 
 ## Project Overview
 
@@ -16,7 +16,7 @@ This is a graduation project that combines:
 
 ```
 crypto_agent/
-├── CLAUDE.md                 # This file - project development guidelines
+├── AGENT.md                  # This file - project development guidelines
 ├── LICENSE                   # MIT License
 ├── README.md                 # Main documentation
 │
@@ -367,6 +367,11 @@ Agent: 支付成功，正在处理... [返回视频]
 - `require_payment()`: Decorator for 402 responses
 
 ## Working with This Codebase
+
+### Local Agent Preferences
+- MarkItDown is installed globally via `uv` and available as `markitdown` (`/Users/howienew/.local/bin/markitdown`).
+- Prefer `markitdown` for converting supported input files (PDF, DOCX, XLSX, HTML, CSV/JSON/XML, etc.) into Markdown before analysis or summarization in this project.
+- FFmpeg is installed globally via Homebrew and available as `ffmpeg` (`/opt/homebrew/bin/ffmpeg`) for audio/video handling.
 
 ### When Adding New Features
 1. **New Payment Services**: Add endpoints in `mock-service/app.py`
