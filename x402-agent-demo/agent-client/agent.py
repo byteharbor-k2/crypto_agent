@@ -6,12 +6,19 @@ Uses Anthropic Claude API with MCP tools
 import asyncio
 import json
 import os
+import sys
+from contextlib import AsyncExitStack
+from pathlib import Path
+
 from anthropic import Anthropic
 from dotenv import load_dotenv
-import sys
+from mcp import ClientSession, StdioServerParameters
+from mcp.client.stdio import stdio_client
+
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
 
 # Load environment variables
-load_dotenv()
+load_dotenv(PROJECT_ROOT / ".env")
 
 # Initialize Anthropic client
 client = Anthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
@@ -48,6 +55,87 @@ class X402Agent:
     def __init__(self):
         self.conversation_history = []
         self.pending_payment = None
+        self.exit_stack = AsyncExitStack()
+        self.mcp_session = None
+        self.tools = []
+
+    async def connect_mcp_server(self):
+        """Start the MCP server process and load its tool definitions."""
+        server_script = PROJECT_ROOT / "mcp-server" / "server.py"
+
+        server_params = StdioServerParameters(
+            command=sys.executable,
+            args=[str(server_script)],
+            env=os.environ.copy(),
+        )
+
+        stdio_transport = await self.exit_stack.enter_async_context(
+            stdio_client(server_params)
+        )
+        read_stream, write_stream = stdio_transport
+
+        self.mcp_session = await self.exit_stack.enter_async_context(
+            ClientSession(read_stream, write_stream)
+        )
+        await self.mcp_session.initialize()
+
+        tools_result = await self.mcp_session.list_tools()
+        self.tools = [self._to_anthropic_tool(tool) for tool in tools_result.tools]
+
+        print(f"\n🔌 Connected to MCP server: {server_script}")
+        print("🧰 MCP tools loaded: " + ", ".join(tool["name"] for tool in self.tools))
+
+    async def close(self):
+        """Stop the MCP server process and release streams."""
+        await self.exit_stack.aclose()
+
+    def _to_anthropic_tool(self, tool) -> dict:
+        """Convert an MCP Tool object to Anthropic's tool schema."""
+        input_schema = getattr(tool, "inputSchema", None)
+        if input_schema is None and isinstance(tool, dict):
+            input_schema = tool.get("inputSchema", {})
+
+        return {
+            "name": getattr(tool, "name", None)
+            if not isinstance(tool, dict)
+            else tool["name"],
+            "description": getattr(tool, "description", "")
+            if not isinstance(tool, dict)
+            else tool.get("description", ""),
+            "input_schema": input_schema or {"type": "object", "properties": {}},
+        }
+
+    def _parse_mcp_result(self, result) -> dict:
+        """Return a JSON-friendly payload from an MCP tool result."""
+        content_blocks = []
+
+        for content in getattr(result, "content", []):
+            if getattr(content, "type", None) == "text":
+                text = content.text
+                try:
+                    return json.loads(text)
+                except json.JSONDecodeError:
+                    content_blocks.append({"type": "text", "text": text})
+            else:
+                content_blocks.append(
+                    {
+                        "type": getattr(content, "type", "unknown"),
+                        "data": str(content),
+                    }
+                )
+
+        parsed = {"content": content_blocks}
+        if getattr(result, "isError", False):
+            parsed["error"] = True
+        return parsed
+
+    async def _call_mcp_tool(self, tool_name: str, tool_input: dict) -> dict:
+        """Call a tool through the MCP session."""
+        if self.mcp_session is None:
+            raise RuntimeError("MCP server is not connected")
+
+        result = await self.mcp_session.call_tool(tool_name, tool_input)
+        return self._parse_mcp_result(result)
 
     def _create_system_prompt(self) -> str:
         """Create system prompt for the agent"""
@@ -76,206 +164,18 @@ Always be transparent about payments and explain what you're paying for.
 Your wallet address: {wallet}
 """.format(max_auto=MAX_AUTO_APPROVE_AMOUNT, wallet=AGENT_WALLET)
 
-    def _simulate_mcp_tool_call(self, tool_name: str, tool_input: dict) -> dict:
-        """
-        Simulate MCP tool calls
-        In production, this would communicate with the MCP server via stdio
-        For demo, we implement the tools directly
-        """
-        if tool_name == "http_request":
-            return self._tool_http_request(tool_input)
-        elif tool_name == "web3_payment":
-            return self._tool_web3_payment(tool_input)
-        elif tool_name == "get_wallet_balance":
-            return self._tool_get_balance(tool_input)
-        elif tool_name == "check_payment_policy":
-            return self._tool_check_policy(tool_input)
-        else:
-            return {"error": f"Unknown tool: {tool_name}"}
-
-    def _tool_http_request(self, args: dict) -> dict:
-        """HTTP request tool implementation"""
-        import requests
-
-        url = args["url"]
-        method = args.get("method", "GET")
-        headers = args.get("headers", {})
-        body = args.get("body")
-        payment_proof = args.get("payment_proof")
-
-        if payment_proof:
-            headers["X-Payment-Proof"] = json.dumps(payment_proof)
-
-        try:
-            if method == "GET":
-                response = requests.get(url, headers=headers)
-            elif method == "POST":
-                response = requests.post(url, json=body, headers=headers)
-            else:
-                response = requests.request(method, url, json=body, headers=headers)
-
-            if response.status_code == 402:
-                return {
-                    "status": "payment_required",
-                    "payment_amount": response.headers.get("X-Payment-Amount"),
-                    "payment_currency": response.headers.get("X-Payment-Currency"),
-                    "payment_address": response.headers.get("X-Payment-Address"),
-                    "payment_challenge": response.headers.get("X-Payment-Challenge"),
-                    "payment_description": response.headers.get(
-                        "X-Payment-Description"
-                    ),
-                    "url": url,
-                    "method": method,
-                    "body": body,
-                }
-
-            return {
-                "status": "success",
-                "status_code": response.status_code,
-                "content": response.json()
-                if "application/json" in response.headers.get("Content-Type", "")
-                else response.text,
-            }
-        except Exception as e:
-            return {"error": str(e)}
-
-    def _tool_web3_payment(self, args: dict) -> dict:
-        """Web3 payment tool implementation"""
-        from web3 import Web3
-
-        recipient = args["recipient"]
-        amount = float(args["amount"])
-        challenge = args["challenge"]
-
-        # Simulate transaction (in production, actually sign and broadcast)
-        tx_data = f"{AGENT_WALLET}:{recipient}:{amount}:{challenge}"
-        simulated_tx_hash = Web3.keccak(text=tx_data).hex()
-
-        print(f"\n✅ Payment executed: {amount} USDC to {recipient}")
-        print(f"📝 TX Hash: {simulated_tx_hash}")
-
-        return {
-            "status": "success",
-            "tx_hash": simulated_tx_hash,
-            "from": AGENT_WALLET,
-            "to": recipient,
-            "amount": amount,
-            "note": "Simulated transaction for demo",
-        }
-
-    def _tool_get_balance(self, args: dict) -> dict:
-        """Get wallet balance"""
-        return {
-            "address": AGENT_WALLET,
-            "balances": {"ETH": "0.1", "USDC": "100.0"},
-            "note": "Simulated balance",
-        }
-
-    def _tool_check_policy(self, args: dict) -> dict:
-        """Check payment policy"""
-        amount = float(args["amount"])
-        requires_approval = amount > MAX_AUTO_APPROVE_AMOUNT
-
-        return {
-            "amount": amount,
-            "max_auto_approve": MAX_AUTO_APPROVE_AMOUNT,
-            "requires_approval": requires_approval,
-            "decision": "request_user_approval"
-            if requires_approval
-            else "auto_approve",
-        }
-
-    def chat(self, user_message: str) -> str:
+    async def chat(self, user_message: str) -> str:
         """Send a message and get response"""
 
         # Add user message to history
         self.conversation_history.append({"role": "user", "content": user_message})
-
-        # Define tools for Claude
-        tools = [
-            {
-                "name": "http_request",
-                "description": "Make HTTP request to a URL. Automatically detects x402 payment requirements.",
-                "input_schema": {
-                    "type": "object",
-                    "properties": {
-                        "url": {"type": "string", "description": "The URL to request"},
-                        "method": {
-                            "type": "string",
-                            "enum": ["GET", "POST"],
-                            "default": "GET",
-                        },
-                        "headers": {
-                            "type": "object",
-                            "description": "Optional HTTP headers",
-                        },
-                        "body": {
-                            "type": "object",
-                            "description": "Optional request body",
-                        },
-                        "payment_proof": {
-                            "type": "object",
-                            "description": "Payment proof if already paid",
-                        },
-                    },
-                    "required": ["url"],
-                },
-            },
-            {
-                "name": "web3_payment",
-                "description": "Execute a Web3 payment transaction.",
-                "input_schema": {
-                    "type": "object",
-                    "properties": {
-                        "recipient": {
-                            "type": "string",
-                            "description": "Recipient address",
-                        },
-                        "amount": {"type": "number", "description": "Amount in USDC"},
-                        "challenge": {
-                            "type": "string",
-                            "description": "Challenge from service",
-                        },
-                        "description": {
-                            "type": "string",
-                            "description": "Payment description",
-                        },
-                    },
-                    "required": ["recipient", "amount", "challenge"],
-                },
-            },
-            {
-                "name": "get_wallet_balance",
-                "description": "Get wallet balance",
-                "input_schema": {
-                    "type": "object",
-                    "properties": {
-                        "address": {
-                            "type": "string",
-                            "description": "Wallet address (optional)",
-                        }
-                    },
-                },
-            },
-            {
-                "name": "check_payment_policy",
-                "description": "Check if payment requires approval",
-                "input_schema": {
-                    "type": "object",
-                    "properties": {
-                        "amount": {"type": "number", "description": "Payment amount"}
-                    },
-                    "required": ["amount"],
-                },
-            },
-        ]
 
         # Call Claude API with tools
         response = client.messages.create(
             model="claude-3-5-sonnet-20241022",
             max_tokens=4096,
             system=self._create_system_prompt(),
-            tools=tools,
+            tools=self.tools,
             messages=self.conversation_history,
         )
 
@@ -318,8 +218,8 @@ Your wallet address: {wallet}
                                 )
                                 continue
 
-                    # Execute tool
-                    tool_result = self._simulate_mcp_tool_call(tool_name, tool_input)
+                    # Execute tool through MCP
+                    tool_result = await self._call_mcp_tool(tool_name, tool_input)
                     print(f"   Result: {json.dumps(tool_result, indent=2)}")
 
                     tool_results.append(
@@ -343,7 +243,7 @@ Your wallet address: {wallet}
                 model="claude-3-5-sonnet-20241022",
                 max_tokens=4096,
                 system=self._create_system_prompt(),
-                tools=tools,
+                tools=self.tools,
                 messages=self.conversation_history,
             )
 
@@ -358,7 +258,7 @@ Your wallet address: {wallet}
         return final_text
 
 
-def main():
+async def run_agent():
     """Run the agent"""
     print("=" * 60)
     print("🤖 x402 AI Agent - Autonomous Economic Agent")
@@ -377,28 +277,36 @@ def main():
         sys.exit(1)
 
     agent = X402Agent()
+    try:
+        await agent.connect_mcp_server()
 
-    print("\nType 'quit' to exit\n")
+        print("\nType 'quit' to exit\n")
 
-    while True:
-        try:
-            user_input = input("\n👤 You: ").strip()
+        while True:
+            try:
+                user_input = input("\n👤 You: ").strip()
 
-            if user_input.lower() in ["quit", "exit", "q"]:
-                print("\n👋 Goodbye!")
+                if user_input.lower() in ["quit", "exit", "q"]:
+                    print("\n👋 Goodbye!")
+                    break
+
+                if not user_input:
+                    continue
+
+                response = await agent.chat(user_input)
+                print(f"\n🤖 Agent: {response}")
+
+            except KeyboardInterrupt:
+                print("\n\n👋 Goodbye!")
                 break
+            except Exception as e:
+                print(f"\n❌ Error: {e}")
+    finally:
+        await agent.close()
 
-            if not user_input:
-                continue
 
-            response = agent.chat(user_input)
-            print(f"\n🤖 Agent: {response}")
-
-        except KeyboardInterrupt:
-            print("\n\n👋 Goodbye!")
-            break
-        except Exception as e:
-            print(f"\n❌ Error: {e}")
+def main():
+    asyncio.run(run_agent())
 
 
 if __name__ == "__main__":

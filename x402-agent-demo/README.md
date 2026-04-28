@@ -35,7 +35,7 @@
 └─────────────────────────────────────┘
               ↓
 ┌─────────────────────────────────────┐
-│   MCP Tools (模拟实现)               │
+│   MCP Server (stdio 工具层)           │
 │   ├─ http_request                   │
 │   ├─ web3_payment                   │
 │   ├─ get_wallet_balance             │
@@ -272,30 +272,36 @@ def your_service():
 
 ### 调整支付策略
 
-修改 `agent-client/agent.py` 中的决策逻辑：
+修改 `mcp-server/server.py` 中的 `handle_check_policy()` 逻辑。Agent 会通过 MCP 调用该工具，而不是在客户端内部直接判断策略：
 
 ```python
-def _tool_check_policy(self, args: dict) -> dict:
-    amount = float(args['amount'])
+async def handle_check_policy(arguments: dict) -> list[TextContent]:
+    amount = float(arguments["amount"])
     
     # 自定义策略
     if amount < 0.5:
-        return {"decision": "auto_approve"}
+        result = {"decision": "auto_approve"}
     elif amount < 2.0:
-        return {"decision": "request_approval"}
+        result = {"decision": "request_approval"}
     else:
-        return {"decision": "reject", "reason": "exceeds limit"}
+        result = {"decision": "reject", "reason": "exceeds limit"}
+
+    return [TextContent(type="text", text=json.dumps(result))]
 ```
 
 ---
 
-## 🔄 与真实 MCP Server 集成
+## 🔄 MCP Server 集成
 
-当前版本中，MCP 工具是直接在 Agent 中模拟实现的。要使用真实的 MCP Server：
+当前版本中，`run_agent.py` 会启动 Agent 客户端，Agent 再通过 stdio 自动拉起并连接 `mcp-server/server.py`。Claude 只看到从 MCP Server 动态加载的工具定义，具体的 HTTP 请求、x402 检测、支付模拟、余额查询和支付策略判断都在 MCP Server 中执行。
 
-1. 修改 `agent-client/agent.py`，通过 stdio 与 MCP Server 通信
-2. 使用 `mcp` 包的客户端 API
-3. 启动 `mcp-server/server.py` 作为独立进程
+运行时链路：
+
+1. Agent 初始化 MCP ClientSession
+2. MCP Client 通过 stdio 启动 `mcp-server/server.py`
+3. Agent 调用 `list_tools()` 加载工具 schema
+4. Claude 发起 tool_use 后，Agent 将参数转发到 MCP Server 的 `call_tool()`
+5. MCP Server 执行工具并把 JSON 结果返回给 Agent
 
 参考 MCP 官方文档：https://github.com/anthropics/mcp
 

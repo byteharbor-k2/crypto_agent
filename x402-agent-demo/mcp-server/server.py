@@ -11,9 +11,13 @@ from web3 import Web3
 from eth_account import Account
 from eth_account.messages import encode_typed_data
 import os
+from pathlib import Path
+from dotenv import load_dotenv
 from mcp.server import Server
 from mcp.types import Tool, TextContent
 from pydantic import BaseModel, Field
+
+load_dotenv(Path(__file__).resolve().parents[1] / ".env")
 
 # Setup logging
 logging.basicConfig(level=logging.INFO)
@@ -181,7 +185,7 @@ async def handle_http_request(arguments: dict) -> list[TextContent]:
     try:
         url = arguments["url"]
         method = arguments.get("method", "GET")
-        headers = arguments.get("headers", {})
+        headers = arguments.get("headers") or {}
         body = arguments.get("body")
         payment_proof = arguments.get("payment_proof")
 

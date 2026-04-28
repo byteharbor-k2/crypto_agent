@@ -141,7 +141,7 @@ x402-agent-demo/
 ├── mock-service/           # 模拟的 x402 付费服务
 │   └── app.py             # Flask API
 │
-├── mcp-server/            # MCP 工具服务器（暂未使用）
+├── mcp-server/            # MCP 工具服务器（Agent 启动时通过 stdio 连接）
 │   └── server.py          # MCP 工具实现
 │
 └── agent-client/          # AI Agent 客户端
