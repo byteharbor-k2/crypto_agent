@@ -93,6 +93,30 @@ Approve payment? (yes/no): yes
 🤖 Agent: 视频已生成
 ```
 
+### 示例 4: 发现真实 x402 服务（不付款）
+
+```
+👤 You: 搜索一些真实可用的 x402 加密数据 API
+
+🤖 Agent 会：
+1. 调用 discover_x402_services
+2. 请求 Coinbase x402 Bazaar discovery/search
+3. 返回真实服务列表和可探测 URL
+4. 不签名、不付款
+```
+
+### 示例 5: 探测真实 x402 URL（dry-run）
+
+```
+👤 You: 用 real_x402_request 探测这个真实 x402 URL: https://example.com/paid-api
+
+🤖 Agent 会：
+1. 对 URL 请求一次
+2. 如果返回 HTTP 402，解析 payment requirements
+3. 展示金额、币种、网络、服务描述等信息
+4. 不执行真实支付
+```
+
 ## 常见问题
 
 ### Q: Mock 服务无法启动？
@@ -127,6 +151,20 @@ MAX_AUTO_APPROVE_AMOUNT=2.0
 
 编辑 `mock-service/app.py`，参考现有端点添加新的路由。
 
+### Q: 真实 x402 工具会不会扣钱？
+
+不会。当前 `discover_x402_services` 只做服务发现，`real_x402_request` 只做 dry-run 探测和 402 支付要求解析。真实签名和付款适配器还未启用。
+
+### Q: 如何配置真实 x402 discovery？
+
+编辑 `.env`:
+
+```env
+X402_BAZAAR_BASE_URL=https://api.cdp.coinbase.com/platform/v2/x402/discovery
+ALLOW_REAL_X402_PAYMENT=false
+X402_REQUEST_TIMEOUT=15
+```
+
 ## 目录结构说明
 
 ```
@@ -142,7 +180,7 @@ x402-agent-demo/
 │   └── app.py             # Flask API
 │
 ├── mcp-server/            # MCP 工具服务器（Agent 启动时通过 stdio 连接）
-│   └── server.py          # MCP 工具实现
+│   └── server.py          # MCP 工具实现，含 mock 支付与真实 x402 dry-run
 │
 └── agent-client/          # AI Agent 客户端
     └── agent.py           # Claude Agent 实现
@@ -153,13 +191,16 @@ x402-agent-demo/
 1. **理解代码**: 阅读 `agent-client/agent.py` 了解 Agent 如何处理支付
 2. **自定义服务**: 在 `mock-service/app.py` 添加你的付费 API
 3. **调整策略**: 修改支付决策逻辑
-4. **集成真实链**: 参考 `mcp-server/server.py` 集成真实区块链
+4. **发现真实服务**: 使用 `discover_x402_services` 调 Coinbase x402 Bazaar
+5. **探测真实 402**: 使用 `real_x402_request` 解析真实 payment requirements
+6. **集成真实链**: 在 PaymentAdapter 中接 Coinbase x402 client 或 CDP AgentKit
 
 ## 注意事项
 
 ⚠️ **这是演示项目，所有支付都是模拟的！**
 
 - 不会产生真实的区块链交易
+- 真实 x402 工具目前只做 dry-run，不会签名或付款
 - 测试钱包不要存入真实资金
 - 生产环境需要真实的交易验证
 

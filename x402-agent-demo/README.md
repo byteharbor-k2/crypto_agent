@@ -21,6 +21,8 @@
 ✅ 基于策略自主决策是否支付  
 ✅ 执行 Web3 加密货币交易  
 ✅ 获取付费内容并呈现给用户  
+✅ 发现 Coinbase x402 Bazaar 中的真实 x402 服务  
+✅ Dry-run 探测真实 x402 URL 的支付要求（不签名、不付款）  
 
 ---
 
@@ -39,15 +41,17 @@
 │   ├─ http_request                   │
 │   ├─ web3_payment                   │
 │   ├─ get_wallet_balance             │
-│   └─ check_payment_policy           │
+│   ├─ check_payment_policy           │
+│   ├─ discover_x402_services         │
+│   └─ real_x402_request              │
 └─────────────────────────────────────┘
               ↓
-┌─────────────────────────────────────┐
-│   Mock x402 Service (Flask)         │
-│   ├─ Premium Article API (0.5 USDC) │
-│   ├─ Image Generation (0.8 USDC)    │
-│   └─ Video Generation (5.0 USDC)    │
-└─────────────────────────────────────┘
+┌──────────────────────────────────────────┐
+│   x402 Service Layer                     │
+│   ├─ Mock x402 Service (Flask)           │
+│   ├─ Coinbase x402 Bazaar Discovery      │
+│   └─ Real x402 URL Probe (dry-run only)  │
+└──────────────────────────────────────────┘
 ```
 
 ---
@@ -181,6 +185,15 @@ Approve payment? (yes/no): yes
 | `/api/generate/video` | POST | 5.0 USDC | AI 视频生成 |
 | `/health` | GET | 免费 | 健康检查 |
 
+### Real x402 Discovery / Probe
+
+| MCP 工具 | 作用 | 是否付款 |
+|------|------|------|
+| `discover_x402_services` | 调 Coinbase x402 Bazaar discovery/search，发现真实 x402 服务 | 否 |
+| `real_x402_request` | 对真实 x402 URL 请求一次，解析 HTTP 402 payment requirements | 否 |
+
+当前真实 x402 功能处于 **dry-run** 阶段：只发现服务、请求 URL、解析 402 支付要求、展示金额/币种/网络/服务信息，不会签名，也不会产生链上支付。
+
 ### 测试请求
 
 ```bash
@@ -208,6 +221,11 @@ AGENT_PRIVATE_KEY=0x...
 
 # Web3 RPC (Sepolia 测试网)
 WEB3_RPC_URL=https://eth-sepolia.g.alchemy.com/v2/demo
+
+# Real x402 discovery / dry-run
+X402_BAZAAR_BASE_URL=https://api.cdp.coinbase.com/platform/v2/x402/discovery
+ALLOW_REAL_X402_PAYMENT=false
+X402_REQUEST_TIMEOUT=15
 ```
 
 ---
@@ -217,10 +235,11 @@ WEB3_RPC_URL=https://eth-sepolia.g.alchemy.com/v2/demo
 ⚠️ **重要提示**：
 
 1. **本项目仅用于演示和研究**
-2. 所有支付交易都是**模拟的**，不会产生真实链上交易
+2. 默认支付交易都是**模拟的**，不会产生真实链上交易
 3. 不要在测试钱包中存入真实资金
 4. 不要将私钥提交到代码仓库
-5. 生产环境需要：
+5. `real_x402_request` 只做 dry-run 探测，不会签名或付款
+6. 生产环境需要：
    - 真实的区块链交易验证
    - 安全的私钥管理（硬件钱包、KMS）
    - 完善的错误处理和重试机制
@@ -293,7 +312,7 @@ async def handle_check_policy(arguments: dict) -> list[TextContent]:
 
 ## 🔄 MCP Server 集成
 
-当前版本中，`run_agent.py` 会启动 Agent 客户端，Agent 再通过 stdio 自动拉起并连接 `mcp-server/server.py`。Claude 只看到从 MCP Server 动态加载的工具定义，具体的 HTTP 请求、x402 检测、支付模拟、余额查询和支付策略判断都在 MCP Server 中执行。
+当前版本中，`run_agent.py` 会启动 Agent 客户端，Agent 再通过 stdio 自动拉起并连接 `mcp-server/server.py`。Claude 只看到从 MCP Server 动态加载的工具定义，具体的 HTTP 请求、x402 检测、支付模拟、真实 x402 discovery、真实 x402 dry-run probe、余额查询和支付策略判断都在 MCP Server 中执行。
 
 运行时链路：
 
@@ -302,6 +321,21 @@ async def handle_check_policy(arguments: dict) -> list[TextContent]:
 3. Agent 调用 `list_tools()` 加载工具 schema
 4. Claude 发起 tool_use 后，Agent 将参数转发到 MCP Server 的 `call_tool()`
 5. MCP Server 执行工具并把 JSON 结果返回给 Agent
+
+### PaymentAdapter 设计
+
+支付层采用适配器思路拆分：
+
+- `MockPaymentAdapter`：当前默认适配器，生成模拟交易哈希，用于本地闭环演示。
+- `RealX402DryRunAdapter`：真实 x402 探测适配器，只解析并展示 HTTP 402 payment requirements，不签名、不付款。
+- 未来扩展：`CoinbaseX402Adapter` 或 `AgentCorePaymentAdapter`，用于接 Coinbase x402 client、CDP AgentKit 或 AWS AgentCore Payments。
+
+真实支付接入顺序建议：
+
+1. 先用 `discover_x402_services` 发现真实 x402 服务。
+2. 再用 `real_x402_request` 请求一次真实 URL 并解析 402。
+3. 确认预算、白名单、钱包网络和测试资金后，再实现真实签名适配器。
+4. 优先使用 Base Sepolia 或小额 USDC 测试，确认 `402 -> sign -> retry` 流程。
 
 参考 MCP 官方文档：https://github.com/anthropics/mcp
 
