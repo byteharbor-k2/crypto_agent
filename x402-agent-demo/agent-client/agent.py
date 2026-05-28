@@ -21,7 +21,12 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 load_dotenv(PROJECT_ROOT / ".env")
 
 # Initialize Anthropic client
-client = Anthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
+ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY") or os.getenv("ANTHROPIC_AUTH_TOKEN")
+ANTHROPIC_BASE_URL = os.getenv("ANTHROPIC_BASE_URL")
+anthropic_client_kwargs = {"api_key": ANTHROPIC_API_KEY}
+if ANTHROPIC_BASE_URL:
+    anthropic_client_kwargs["base_url"] = ANTHROPIC_BASE_URL
+client = Anthropic(**anthropic_client_kwargs)
 
 # Agent configuration
 MAX_AUTO_APPROVE_AMOUNT = float(os.getenv("MAX_AUTO_APPROVE_AMOUNT", "1.0"))
@@ -146,6 +151,8 @@ You have access to the following tools:
 2. web3_payment - Execute cryptocurrency payments to unlock paid content.
 3. get_wallet_balance - Check your wallet balance.
 4. check_payment_policy - Check if a payment requires user approval.
+5. discover_x402_services - Discover real x402 services from Coinbase x402 Bazaar. This does not pay.
+6. real_x402_request - Probe a real x402 URL and parse payment requirements. This is dry-run only.
 
 Payment Policy:
 - Payments under {max_auto} USDC are automatically approved
@@ -160,6 +167,7 @@ When you encounter a 402 Payment Required response:
 5. After payment, retry the request with payment proof
 
 Always be transparent about payments and explain what you're paying for.
+For real_x402_request results, do not claim a real payment was made. Treat real x402 payment requirements as inspection output until a real payment adapter is explicitly enabled.
 
 Your wallet address: {wallet}
 """.format(max_auto=MAX_AUTO_APPROVE_AMOUNT, wallet=AGENT_WALLET)
@@ -271,9 +279,9 @@ async def run_agent():
     )
     print("=" * 60)
 
-    if not os.getenv("ANTHROPIC_API_KEY"):
+    if not ANTHROPIC_API_KEY:
         print("\n❌ Error: ANTHROPIC_API_KEY not found in environment")
-        print("Please set it in .env file")
+        print("Please set ANTHROPIC_API_KEY or ANTHROPIC_AUTH_TOKEN in .env file")
         sys.exit(1)
 
     agent = X402Agent()
