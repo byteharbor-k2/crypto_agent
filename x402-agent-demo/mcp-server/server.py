@@ -34,13 +34,24 @@ w3 = Web3(
 
 # Agent's wallet (loaded from env)
 AGENT_PRIVATE_KEY = os.getenv("AGENT_PRIVATE_KEY", "")
-if AGENT_PRIVATE_KEY:
-    agent_account = Account.from_key(AGENT_PRIVATE_KEY)
+CONFIGURED_WALLET_ADDRESS = os.getenv("AGENT_WALLET_ADDRESS", "")
+if AGENT_PRIVATE_KEY and not AGENT_PRIVATE_KEY.startswith("your_"):
+    try:
+        agent_account = Account.from_key(AGENT_PRIVATE_KEY)
+    except Exception as exc:
+        logger.warning(
+            f"⚠️  Invalid AGENT_PRIVATE_KEY, generated temporary wallet: {exc}"
+        )
+        agent_account = Account.create()
 else:
-    # Generate a temporary account for demo
     agent_account = Account.create()
-    logger.warning(f"⚠️  Generated temporary wallet: {agent_account.address}")
-    logger.warning(f"⚠️  Private key: {agent_account.key.hex()}")
+
+AGENT_ADDRESS = (
+    CONFIGURED_WALLET_ADDRESS
+    if CONFIGURED_WALLET_ADDRESS and not CONFIGURED_WALLET_ADDRESS.startswith("your_")
+    else agent_account.address
+)
+logger.warning(f"⚠️  Demo wallet address: {AGENT_ADDRESS}")
 
 # Payment policy
 MAX_AUTO_APPROVE_AMOUNT = float(os.getenv("MAX_AUTO_APPROVE_AMOUNT", "1.0"))  # USDC
@@ -75,7 +86,7 @@ class MockPaymentAdapter(PaymentAdapter):
         challenge = arguments["challenge"]
         description = arguments.get("description", "")
 
-        tx_data = f"{agent_account.address}:{recipient}:{amount}:{challenge}"
+        tx_data = f"{AGENT_ADDRESS}:{recipient}:{amount}:{challenge}"
         simulated_tx_hash = Web3.keccak(text=tx_data).hex()
 
         logger.info(f"💸 Payment simulated: {amount} {currency} to {recipient}")
@@ -85,7 +96,7 @@ class MockPaymentAdapter(PaymentAdapter):
             "status": "success",
             "adapter": self.name,
             "tx_hash": simulated_tx_hash,
-            "from": agent_account.address,
+            "from": AGENT_ADDRESS,
             "to": recipient,
             "amount": amount,
             "currency": currency,
@@ -467,7 +478,7 @@ async def handle_web3_payment(arguments: dict) -> list[TextContent]:
 async def handle_get_balance(arguments: dict) -> list[TextContent]:
     """Get wallet balance"""
     try:
-        address = arguments.get("address", agent_account.address)
+        address = arguments.get("address", AGENT_ADDRESS)
 
         # For demo, return simulated balances
         # In production, query actual blockchain
@@ -588,7 +599,7 @@ async def main():
     from mcp.server.stdio import stdio_server
 
     logger.info("🚀 Starting x402 Agent MCP Server")
-    logger.info(f"🔑 Agent wallet: {agent_account.address}")
+    logger.info(f"🔑 Agent wallet: {AGENT_ADDRESS}")
     logger.info(f"💰 Max auto-approve: {MAX_AUTO_APPROVE_AMOUNT} USDC")
 
     async with stdio_server() as (read_stream, write_stream):

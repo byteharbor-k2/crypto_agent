@@ -12,34 +12,48 @@ uv sync
 ### 2. 生成配置文件
 
 ```bash
-.venv/Scripts/python.exe setup.py
+uv run python setup.py
 ```
 
 这将：
 - 自动生成一个测试用的 ETH 钱包
 - 创建 `.env` 配置文件
 
-### 3. 配置 API Key
+### 3. 配置模型 API
 
-编辑 `.env` 文件，添加你的 Anthropic API Key：
+编辑 `.env` 文件，选择一种模型接口。
+
+**Anthropic / B.AI Claude-compatible：**
 
 ```env
+LLM_PROVIDER=anthropic
 ANTHROPIC_API_KEY=sk-ant-api03-xxxxx
 ```
 
 获取 API Key: https://console.anthropic.com/
 
+**OpenAI-compatible 本地模型，例如 Ollama / OMLX / MLX wrapper：**
+
+```env
+LLM_PROVIDER=openai
+OPENAI_BASE_URL=http://127.0.0.1:8000/v1
+OPENAI_API_KEY=your_local_api_key
+OPENAI_MODEL=your_local_model_id
+```
+
+如果本地 `/v1/models` 能返回模型列表，`OPENAI_MODEL` 可以先留空，Agent 会尝试自动选择第一个模型。
+
 ### 4. 测试系统
 
 ```bash
 # 先启动 Mock 服务（保持运行）
-.venv/Scripts/python.exe run_mock_service.py
+uv run python run_mock_service.py
 ```
 
 在另一个终端运行测试：
 
 ```bash
-.venv/Scripts/python.exe test_system.py
+uv run python test_system.py
 ```
 
 如果所有测试通过，继续下一步。
@@ -47,7 +61,7 @@ ANTHROPIC_API_KEY=sk-ant-api03-xxxxx
 ### 5. 启动 Agent
 
 ```bash
-.venv/Scripts/python.exe run_agent.py
+uv run python run_agent.py
 ```
 
 ## 使用示例
@@ -55,7 +69,7 @@ ANTHROPIC_API_KEY=sk-ant-api03-xxxxx
 ### 示例 1: 获取付费文章（自动支付）
 
 ```
-👤 You: 帮我获取这篇文章 http://localhost:5000/api/article/quantum-2026
+👤 You: 帮我获取这篇文章 http://localhost:${MOCK_SERVICE_PORT:-5000}/api/article/quantum-2026
 
 🤖 Agent 会：
 1. 访问 URL
@@ -68,7 +82,7 @@ ANTHROPIC_API_KEY=sk-ant-api03-xxxxx
 ### 示例 2: 生成图片（自动支付）
 
 ```
-👤 You: 用这个 API 生成一张赛博朋克风格的图片 http://localhost:5000/api/generate/image
+👤 You: 用这个 API 生成一张赛博朋克风格的图片 http://localhost:${MOCK_SERVICE_PORT:-5000}/api/generate/image
 
 请求体: {"prompt": "cyberpunk city"}
 
@@ -78,7 +92,7 @@ ANTHROPIC_API_KEY=sk-ant-api03-xxxxx
 ### 示例 3: 生成视频（需要确认）
 
 ```
-👤 You: 生成一段 4K 风景视频 http://localhost:5000/api/generate/video
+👤 You: 生成一段 4K 风景视频 http://localhost:${MOCK_SERVICE_PORT:-5000}/api/generate/video
 
 请求体: {"prompt": "mountain landscape"}
 
@@ -121,7 +135,7 @@ Approve payment? (yes/no): yes
 
 ### Q: Mock 服务无法启动？
 
-确保端口 5000 没有被占用：
+确保 `.env` 中配置的 `MOCK_SERVICE_PORT` 没有被占用：
 
 ```bash
 # Windows

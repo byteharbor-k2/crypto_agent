@@ -4,11 +4,18 @@ Test script to verify all components
 """
 
 import sys
+import os
 import requests
 import json
 from colorama import init, Fore, Style
+from dotenv import load_dotenv
 
 init()
+
+load_dotenv()
+
+MOCK_SERVICE_PORT = os.getenv("MOCK_SERVICE_PORT", "5000")
+MOCK_SERVICE_BASE_URL = f"http://localhost:{MOCK_SERVICE_PORT}"
 
 
 def print_success(msg):
@@ -31,7 +38,7 @@ def test_mock_service():
 
     try:
         # Test health endpoint
-        response = requests.get("http://localhost:5000/health", timeout=2)
+        response = requests.get(f"{MOCK_SERVICE_BASE_URL}/health", timeout=2)
         if response.status_code == 200:
             print_success("Mock service is running")
             print_info(f"Response: {response.json()}")
@@ -40,7 +47,7 @@ def test_mock_service():
             return False
     except requests.exceptions.ConnectionError:
         print_error("Mock service is not running!")
-        print_info("Start it with: python run_mock_service.py")
+        print_info("Start it with: uv run python run_mock_service.py")
         return False
     except Exception as e:
         print_error(f"Error: {e}")
@@ -48,7 +55,7 @@ def test_mock_service():
 
     # Test 402 response
     try:
-        response = requests.get("http://localhost:5000/api/article/test-123")
+        response = requests.get(f"{MOCK_SERVICE_BASE_URL}/api/article/test-123")
         if response.status_code == 402:
             print_success("HTTP 402 Payment Required works correctly")
             print_info(
@@ -70,7 +77,7 @@ def test_mock_service():
             )
         }
         response = requests.get(
-            "http://localhost:5000/api/article/test-123", headers=headers
+            f"{MOCK_SERVICE_BASE_URL}/api/article/test-123", headers=headers
         )
         if response.status_code == 200:
             print_success("Payment verification works correctly")
@@ -118,32 +125,36 @@ def test_env_file():
     print("Testing Environment Configuration")
     print("=" * 60)
 
-    import os
-    from dotenv import load_dotenv
-
     if not os.path.exists(".env"):
         print_error(".env file not found")
-        print_info("Run: python setup.py")
+        print_info("Run: uv run python setup.py")
         return False
 
     print_success(".env file exists")
 
-    load_dotenv()
-
-    api_key = os.getenv("ANTHROPIC_API_KEY")
-    if api_key and api_key != "your_anthropic_api_key_here" and api_key != "":
-        print_success("ANTHROPIC_API_KEY is configured")
+    provider = os.getenv("LLM_PROVIDER", "anthropic").strip().lower()
+    if provider in ("openai", "ollama", "omlx", "mlx"):
+        api_key = os.getenv("OPENAI_API_KEY")
+        base_url = os.getenv("OPENAI_BASE_URL")
+        if api_key and api_key != "your_openai_api_key_here" and base_url:
+            print_success(f"OpenAI-compatible provider configured: {base_url}")
+        else:
+            print_error("OPENAI_API_KEY or OPENAI_BASE_URL not configured")
+            return False
     else:
-        print_error("ANTHROPIC_API_KEY not configured")
-        print_info("Edit .env and add your Anthropic API key")
-        return False
+        api_key = os.getenv("ANTHROPIC_API_KEY") or os.getenv("ANTHROPIC_AUTH_TOKEN")
+        if api_key and api_key != "your_anthropic_api_key_here":
+            print_success("Anthropic provider is configured")
+        else:
+            print_error("ANTHROPIC_API_KEY not configured")
+            print_info("Edit .env and add your Anthropic API key")
+            return False
 
     wallet_address = os.getenv("AGENT_WALLET_ADDRESS")
     if wallet_address and wallet_address != "your_wallet_address_here":
         print_success(f"Agent wallet configured: {wallet_address}")
     else:
-        print_error("Agent wallet not configured")
-        return False
+        print_info("Agent wallet not configured; mock/dry-run mode will use a temporary local account")
 
     return True
 
@@ -180,7 +191,7 @@ def main():
     if all_passed:
         print(f"\n{Fore.GREEN}✓ All tests passed!{Style.RESET_ALL}")
         print(f"\n{Fore.CYAN}Ready to run the agent:{Style.RESET_ALL}")
-        print("  python run_agent.py")
+        print("  uv run python run_agent.py")
         return 0
     else:
         print(f"\n{Fore.RED}✗ Some tests failed{Style.RESET_ALL}")

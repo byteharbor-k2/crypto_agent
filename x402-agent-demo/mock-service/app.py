@@ -8,6 +8,7 @@ from flask_cors import CORS
 import time
 import hashlib
 import json
+import os
 from typing import Dict, Optional
 
 app = Flask(__name__)
@@ -212,9 +213,10 @@ def health():
 
 
 if __name__ == "__main__":
-    print("🚀 Starting x402 Mock Service on http://localhost:5000")
+    port = int(os.getenv("MOCK_SERVICE_PORT", "5000"))
+    print(f"🚀 Starting x402 Mock Service on http://localhost:{port}")
     print("Available endpoints:")
     print("  GET  /api/article/<id>      - Premium article (0.5 USDC)")
     print("  POST /api/generate/image    - AI image (0.8 USDC)")
     print("  POST /api/generate/video    - AI video (5.0 USDC)")
-    app.run(host="0.0.0.0", port=5000, debug=True)
+    app.run(host="0.0.0.0", port=port, debug=True)

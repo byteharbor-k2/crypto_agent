@@ -30,7 +30,7 @@
 
 ```
 ┌─────────────────────────────────────┐
-│   AI Agent Client (Claude API)     │
+│   AI Agent Client (LLMProvider)    │
 │   - 任务理解                         │
 │   - 支付决策                         │
 │   - 用户交互                         │
@@ -84,7 +84,7 @@ x402-agent-demo/
 - Python 3.11+
 - Node.js v22+ (如需使用 MCP)
 - uv (Python 包管理器)
-- Anthropic API Key
+- Anthropic API Key 或 OpenAI-compatible 本地模型服务
 
 ### 1. 安装依赖
 
@@ -100,7 +100,7 @@ uv sync
 
 ```bash
 # 运行设置脚本（会自动生成测试钱包和 .env 文件）
-python setup.py
+uv run python setup.py
 ```
 
 或者手动创建 `.env`：
@@ -109,10 +109,22 @@ python setup.py
 cp .env.example .env
 ```
 
-编辑 `.env` 文件，填入你的 Anthropic API Key：
+编辑 `.env` 文件，选择模型提供方。
+
+**Anthropic / B.AI Claude-compatible：**
 
 ```env
+LLM_PROVIDER=anthropic
 ANTHROPIC_API_KEY=sk-ant-xxxxx
+```
+
+**OpenAI-compatible 本地模型，例如 Ollama / OMLX / MLX wrapper：**
+
+```env
+LLM_PROVIDER=openai
+OPENAI_BASE_URL=http://127.0.0.1:8000/v1
+OPENAI_API_KEY=your_local_api_key
+OPENAI_MODEL=your_local_model_id
 ```
 
 ### 3. 启动服务
@@ -120,15 +132,15 @@ ANTHROPIC_API_KEY=sk-ant-xxxxx
 **终端 1 - 启动 Mock x402 服务**
 
 ```bash
-python run_mock_service.py
+uv run python run_mock_service.py
 ```
 
-服务将运行在 `http://localhost:5000`
+服务默认运行在 `http://localhost:5000`。如果 `.env` 中设置了 `MOCK_SERVICE_PORT`，以该端口为准。
 
 **终端 2 - 启动 AI Agent**
 
 ```bash
-python run_agent.py
+uv run python run_agent.py
 ```
 
 ---
@@ -138,7 +150,7 @@ python run_agent.py
 ### 场景 1: 自动支付（小额）
 
 ```
-👤 You: 帮我获取这篇文章 http://localhost:5000/api/article/quantum-2026
+👤 You: 帮我获取这篇文章 http://localhost:${MOCK_SERVICE_PORT:-5000}/api/article/quantum-2026
 
 🔧 Tool Call: http_request
    检测到 HTTP 402 付费墙
@@ -257,6 +269,7 @@ X402_REQUEST_TIMEOUT=15
 
 **AI/LLM**
 - Anthropic Claude API
+- OpenAI-compatible API (Ollama / OMLX / MLX wrapper / API gateway)
 - MCP (Model Context Protocol)
 
 **开发工具**

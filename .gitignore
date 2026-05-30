@@ -223,3 +223,5 @@ x402-agent-demo/.pytest_cache/
 .git/
 .gitattributes
 
+*.png
+

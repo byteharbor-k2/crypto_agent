@@ -52,8 +52,8 @@ def create_env_file():
     print("\n📝 Next steps:")
     print("1. Edit .env and add your ANTHROPIC_API_KEY")
     print("   Get one at: https://console.anthropic.com/")
-    print("2. Run 'python run_mock_service.py' to start the mock service")
-    print("3. Run 'python run_agent.py' to start the agent")
+    print("2. Run 'uv run python run_mock_service.py' to start the mock service")
+    print("3. Run 'uv run python run_agent.py' to start the agent")
 
 
 if __name__ == "__main__":
